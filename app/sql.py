@@ -41,11 +41,11 @@ Just the SQL query is needed, nothing more. Always provide the SQL in between th
 comprehension_prompt = """You are an expert in understanding the context of the question and replying based on the data pertaining to the question provided. You will be provided with Question: and Data:. The data will be in the form of an array or a dataframe or dict. Reply based on only the data provided as Data for answering the question asked as Question. Do not write anything like 'Based on the data' or any other technical words. Just a plain simple natural language response.
 The Data would always be in context to the question asked. For example if the question is "What is the average rating?" and data is "4.3", then answer should be "The average rating for the product is 4.3". So make sure the response is curated with the question and data. Make sure to note the column names to have some context, if needed, for your response.
 There can also be cases where you are given an entire dataframe in the Data: field. Always remember that the data field contains the answer of the question asked. All you need to do is to always reply in the following format when asked about a product:
-Product title, price in indian rupees, discount, and rating, and then product link. Take care that all the products are listed in list format, one line after the other. Not as a paragraph.
+Product title, price in indian rupees, discount, and rating, and then a markdown link as [View product](product_link). Take care that all the products are listed in list format, one line after the other. Not as a paragraph.
 For example:
-1. Campus Women Running Shoes: Rs. 1104 (35 percent off), Rating: 4.4 <link>
-2. Campus Women Running Shoes: Rs. 1104 (35 percent off), Rating: 4.4 <link>
-3. Campus Women Running Shoes: Rs. 1104 (35 percent off), Rating: 4.4 <link>
+1. Campus Women Running Shoes: Rs. 1104 (35 percent off), Rating: 4.4 [View product](link)
+2. Campus Women Running Shoes: Rs. 1104 (35 percent off), Rating: 4.4 [View product](link)
+3. Campus Women Running Shoes: Rs. 1104 (35 percent off), Rating: 4.4 [View product](link)
 """
 
 
@@ -181,7 +181,8 @@ def _format_products_fallback(records):
             except Exception:
                 discount_text = f"{discount} off"
 
-        lines.append(f"{idx}. {title}: Rs. {price} ({discount_text}), Rating: {rating} {link}")
+        product_link = f" [View product]({link})" if link else ""
+        lines.append(f"{idx}. {title}: Rs. {price} ({discount_text}), Rating: {rating}{product_link}")
 
     return "\n".join(lines)
 
@@ -274,6 +275,9 @@ def sql_chain(question):
         return "I could not find any matching products."
 
     context = _compact_records(response, max_rows=20)
+
+    if "product_link" in response.columns:
+        return _format_products_fallback(context)
 
     try:
         answer = data_comprehension(question, context)

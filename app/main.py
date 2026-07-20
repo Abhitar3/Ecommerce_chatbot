@@ -11,6 +11,9 @@ ingest_faq_data(faqs_path)
 def keyword_route(query):
     q = re.sub(r"\s+", " ", query.lower()).strip()
 
+    if "best deal" in q or "best deals" in q:
+        return "sql"
+
     product_keywords = [
         "product",
         "products",
@@ -93,7 +96,26 @@ def ask(query):
 
 
 st.title("E COMMERCE CHATBOT")
-query=st.chat_input("Write your query")
+
+st.caption("Try a sample question or type your own.")
+
+example_questions = [
+    "How can I pay?",
+    "What is the return policy?",
+    "Show Nike shoes under 3000",
+    "What are the best deals?",
+    "How many Nike products do we have?",
+    "What if my product is damaged?",
+]
+
+selected_example = None
+example_cols = st.columns(2)
+for idx, example in enumerate(example_questions):
+    with example_cols[idx % 2]:
+        if st.button(example, key=f"example_{idx}", use_container_width=True):
+            selected_example = example
+
+query = selected_example or st.chat_input("Write your query")
 
 
 if 'messages' not in st.session_state:
