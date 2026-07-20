@@ -8,50 +8,77 @@ import re
 faqs_path=Path(__file__).parent/'resources/faq_data.csv'
 ingest_faq_data(faqs_path)
 
+def keyword_route(query):
+    q = re.sub(r"\s+", " ", query.lower()).strip()
+
+    product_keywords = [
+        "product",
+        "products",
+        "shoe",
+        "shoes",
+        "sneaker",
+        "sneakers",
+        "sandals",
+        "loafers",
+        "heels",
+        "price",
+        "discount",
+        "sale",
+        "sales",
+        "brand",
+        "rating",
+        "under",
+        "between",
+        "list",
+        "show",
+        "top",
+        "cheapest",
+        "in stock",
+    ]
+
+    high_confidence_faq = [
+        "refund",
+        "return",
+        "policy",
+        "payment",
+        "pay",
+        "paid",
+        "upi",
+        "cash",
+        "cash on delivery",
+        "cod",
+        "card",
+        "net banking",
+        "track",
+        "order status",
+        "damaged",
+        "defective",
+        "faulty",
+        "cancel",
+        "shipping",
+        "coupon",
+        "promo code",
+    ]
+
+    if any(keyword in q for keyword in high_confidence_faq):
+        return "faq"
+
+    faq_keywords = ["offer", "offers", "deal", "deals", "promo"]
+    faq_score = sum(1 for keyword in faq_keywords if keyword in q)
+    sql_score = sum(1 for keyword in product_keywords if keyword in q)
+
+    if faq_score > sql_score:
+        return "faq"
+    if sql_score > faq_score:
+        return "sql"
+    return None
+
 def ask(query):
-    route=router(query).name
+    route = keyword_route(query) or router(query).name
 
     # Fallback routing when semantic router is uncertain (route can be None).
     if route is None:
-        q = re.sub(r"\s+", " ", query.lower()).strip()
-        faq_keywords = [
-            "refund",
-            "return",
-            "policy",
-            "payment",
-            "upi",
-            "cash on delivery",
-            "track",
-            "order status",
-            "offer",
-            "deal",
-            "promo",
-            "damaged",
-            "cancel",
-            "shipping",
-        ]
-        sql_keywords = [
-            "product",
-            "products",
-            "shoe",
-            "shoes",
-            "price",
-            "discount",
-            "sale",
-            "sales",
-            "brand",
-            "rating",
-            "under",
-            "between",
-            "list",
-            "show",
-            "top",
-            "cheapest",
-            "in stock",
-        ]
-        faq_score = sum(1 for keyword in faq_keywords if keyword in q)
-        sql_score = sum(1 for keyword in sql_keywords if keyword in q)
-        route = "sql" if sql_score >= faq_score else "faq"
+        route = "faq"
 
     if route=='faq':
         return faq_chain(query)

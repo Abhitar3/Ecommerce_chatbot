@@ -77,6 +77,45 @@ def run_query(query):
     return None
 
 
+def _known_brands():
+    with sqlite3.connect(db_path) as conn:
+        brands = pd.read_sql_query(
+            "SELECT DISTINCT brand FROM product WHERE brand IS NOT NULL",
+            conn,
+        )["brand"].dropna().tolist()
+
+    return sorted({str(brand).strip() for brand in brands if str(brand).strip()})
+
+
+def _answer_brand_count(question):
+    q = question.lower()
+    count_words = ["how many", "count", "number of", "total"]
+    product_words = ["product", "products", "shoe", "shoes"]
+
+    if not any(word in q for word in count_words):
+        return None
+    if not any(word in q for word in product_words):
+        return None
+
+    brand = _detect_brand(question)
+    if not brand:
+        return None
+
+    with sqlite3.connect(db_path) as conn:
+        count = pd.read_sql_query(
+            """
+            SELECT COUNT(*) AS count
+            FROM product
+            WHERE LOWER(TRIM(brand)) LIKE ?
+               OR LOWER(title) LIKE ?
+            """,
+            conn,
+            params=[f"%{brand.lower()}%", f"%{brand.lower()}%"],
+        ).iloc[0]["count"]
+
+    return f"We have {int(count)} {brand} products."
+
+
 def data_comprehension(question, context):
     chat_completion = client_sql.chat.completions.create(
         messages=[
@@ -147,7 +186,72 @@ def _format_products_fallback(records):
     return "\n".join(lines)
 
 
+def _extract_max_price(question):
+    q = question.lower()
+    patterns = [
+        r"(?:under|below|less than|upto|up to)\s*(?:rs\.?|inr|₹)?\s*(\d+)",
+        r"(?:rs\.?|inr|₹)?\s*(\d+)\s*(?:or less|and below)",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, q)
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _detect_brand(question):
+    q = question.lower()
+    for brand in _known_brands():
+        normalized_brand = str(brand).strip().lower()
+        if normalized_brand and normalized_brand in q:
+            return str(brand).strip()
+    return None
+
+
+def _closest_product_search(question):
+    brand = _detect_brand(question)
+    max_price = _extract_max_price(question)
+
+    where_clauses = []
+    params = []
+
+    if brand:
+        where_clauses.append("LOWER(brand) LIKE ?")
+        params.append(f"%{brand.lower()}%")
+    if max_price:
+        where_clauses.append("price <= ?")
+        params.append(max_price)
+
+    if not where_clauses:
+        return [], ""
+
+    where_sql = " AND ".join(where_clauses)
+    query = f"""
+        SELECT *
+        FROM product
+        WHERE {where_sql}
+        ORDER BY avg_rating DESC, total_ratings DESC, price ASC
+        LIMIT 10
+    """
+
+    with sqlite3.connect(db_path) as conn:
+        df = pd.read_sql_query(query, conn, params=params)
+
+    label_parts = []
+    if brand:
+        label_parts.append(brand)
+    if max_price:
+        label_parts.append(f"under Rs. {max_price}")
+    label = " ".join(label_parts)
+
+    return _compact_records(df, max_rows=10), label
+
+
 def sql_chain(question):
+    brand_count_answer = _answer_brand_count(question)
+    if brand_count_answer:
+        return brand_count_answer
+
     sql_query = generate_sql_query(question)
     pattern = "<SQL>(.*?)</SQL>"
     matches = re.findall(pattern, sql_query, re.DOTALL)
@@ -161,6 +265,12 @@ def sql_chain(question):
     if response is None:
         return "Sorry, there was a problem executing SQL query"
     if response.empty:
+        closest_records, label = _closest_product_search(question)
+        if closest_records:
+            return (
+                f"I could not find an exact match. Here are the closest products for {label}:\n"
+                f"{_format_products_fallback(closest_records)}"
+            )
         return "I could not find any matching products."
 
     context = _compact_records(response, max_rows=20)
