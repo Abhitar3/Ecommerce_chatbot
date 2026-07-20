@@ -4,5 +4,5 @@ pandasql
 python-dotenv
 groq
 semantic-router[local]
-chromadb
 sentence_transformers
+faiss-cpu

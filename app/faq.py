@@ -1,52 +1,45 @@
-import re
-from difflib import SequenceMatcher
+import os
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
+import faiss
+import numpy as np
 import pandas as pd
+from dotenv import load_dotenv
+from groq import Groq
+from sentence_transformers import SentenceTransformer
 
 
-_FAQ_DATA: List[Tuple[str, str]] = []
-_FAQ_BY_KEY: Dict[str, str] = {}
+load_dotenv()
+
+GROQ_MODEL = os.getenv("GROQ_MODEL")
+EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+client_faq = Groq()
+embedding_model = SentenceTransformer(EMBEDDING_MODEL)
+
+_FAQ_ROWS: List[Dict[str, str]] = []
+_FAQ_INDEX = None
+
+faq_prompt = """You are a helpful ecommerce support assistant.
+Answer the user's question using only the FAQ context provided.
+Keep the answer short, direct, and natural.
+If the context does not answer the question, say that you could not find a matching FAQ.
+"""
 
 
-def _normalize(text: str) -> str:
-    text = text.lower().strip()
-    text = re.sub(r"\s+", " ", text)
-    return text
-
-
-def _infer_key_from_question(question: str) -> str:
-    q = _normalize(question)
-    if "hdfc" in q:
-        return "hdfc_discount"
-    if "return policy" in q:
-        return "return_policy"
-    if "refund" in q:
-        return "refund_time"
-    if "track" in q:
-        return "order_tracking"
-    if "payment" in q:
-        return "payment_methods"
-    if "ongoing sales" in q or "promotions" in q:
-        return "ongoing_offers"
-    if "cancel" in q or "modify" in q:
-        return "cancel_modify"
-    if "international shipping" in q:
-        return "international_shipping"
-    if "damaged" in q:
-        return "damaged_product"
-    if "promo code" in q:
-        return "promo_code"
-    return ""
+def _embed_texts(texts: List[str]) -> np.ndarray:
+    embeddings = embedding_model.encode(
+        texts,
+        convert_to_numpy=True,
+        normalize_embeddings=True,
+    )
+    return embeddings.astype("float32")
 
 
 def ingest_faq_data(csv_path: Path) -> None:
-    """Load FAQ data from CSV into process memory.
-
-    Expected CSV columns: question, answer
-    """
-    global _FAQ_DATA, _FAQ_BY_KEY
+    """Load FAQ CSV rows and build an in-memory FAISS vector index."""
+    global _FAQ_ROWS, _FAQ_INDEX
 
     path = Path(csv_path)
     if not path.exists():
@@ -64,92 +57,86 @@ def ingest_faq_data(csv_path: Path) -> None:
         .apply(lambda column: column.str.strip())
     )
 
-    _FAQ_DATA = [
-        (row.question, row.answer)
+    _FAQ_ROWS = [
+        {"question": row.question, "answer": row.answer}
         for row in normalized_df.itertuples(index=False)
         if row.question and row.answer
     ]
 
-    _FAQ_BY_KEY = {}
-    for faq_question, faq_answer in _FAQ_DATA:
-        key = _infer_key_from_question(faq_question)
-        if key and key not in _FAQ_BY_KEY:
-            _FAQ_BY_KEY[key] = faq_answer
+    if not _FAQ_ROWS:
+        _FAQ_INDEX = None
+        return
+
+    faq_texts = [
+        f"Question: {row['question']}\nAnswer: {row['answer']}"
+        for row in _FAQ_ROWS
+    ]
+    embeddings = _embed_texts(faq_texts)
+
+    _FAQ_INDEX = faiss.IndexFlatIP(embeddings.shape[1])
+    _FAQ_INDEX.add(embeddings)
 
 
-def _match_rule_based(query: str) -> str:
-    q = _normalize(query)
+def _retrieve_faq(question: str, top_k: int = 1):
+    if _FAQ_INDEX is None or not _FAQ_ROWS:
+        return []
 
-    if any(token in q for token in ["upi", "payment", "pay", "card", "cash on delivery", "net banking"]):
-        return _FAQ_BY_KEY.get("payment_methods", "")
+    query_embedding = _embed_texts([question])
+    scores, indices = _FAQ_INDEX.search(query_embedding, top_k)
 
-    if any(token in q for token in ["track", "where is my order", "order status", "shipped", "delivery status"]):
-        return _FAQ_BY_KEY.get("order_tracking", "")
-
-    if "hdfc" in q and any(token in q for token in ["discount", "offer", "deal"]):
-        return _FAQ_BY_KEY.get("hdfc_discount", "")
-
-    if any(token in q for token in ["offer", "offers", "deal", "deals", "sale", "promo"]):
-        return _FAQ_BY_KEY.get("ongoing_offers", "")
-
-    if any(token in q for token in ["damaged", "faulty", "defective", "broken"]):
-        return _FAQ_BY_KEY.get("damaged_product", "")
-
-    if any(token in q for token in ["return policy", "return product", "return item", "return"]):
-        return _FAQ_BY_KEY.get("return_policy", "")
-
-    if any(token in q for token in ["refund", "money back"]):
-        return _FAQ_BY_KEY.get("refund_time", "")
-
-    if any(token in q for token in ["cancel", "modify", "change order"]):
-        return _FAQ_BY_KEY.get("cancel_modify", "")
-
-    if any(token in q for token in ["international shipping", "ship internationally", "ship abroad", "outside india"]):
-        return _FAQ_BY_KEY.get("international_shipping", "")
-
-    if any(token in q for token in ["promo code", "coupon", "coupon code"]):
-        return _FAQ_BY_KEY.get("promo_code", "")
-
-    return ""
+    matches = []
+    for score, index in zip(scores[0], indices[0]):
+        if index < 0:
+            continue
+        row = _FAQ_ROWS[index]
+        matches.append(
+            {
+                "question": row["question"],
+                "answer": row["answer"],
+                "score": float(score),
+            }
+        )
+    return matches
 
 
-def _match_fuzzy(query: str, min_score: float = 0.55) -> str:
-    if not _FAQ_DATA:
-        return ""
+def _generate_faq_answer(question: str, retrieved_faq: Dict[str, str]) -> str:
+    context = (
+        f"FAQ Question: {retrieved_faq['question']}\n"
+        f"FAQ Answer: {retrieved_faq['answer']}"
+    )
 
-    query_norm = _normalize(query)
+    chat_completion = client_faq.chat.completions.create(
+        messages=[
+            {"role": "system", "content": faq_prompt},
+            {
+                "role": "user",
+                "content": f"USER QUESTION: {question}\n\nFAQ CONTEXT:\n{context}",
+            },
+        ],
+        model=GROQ_MODEL,
+        temperature=0.2,
+        max_tokens=256,
+    )
 
-    best_answer = ""
-    best_score = -1.0
-
-    for faq_question, faq_answer in _FAQ_DATA:
-        score = SequenceMatcher(None, query_norm, _normalize(faq_question)).ratio()
-        if score > best_score:
-            best_score = score
-            best_answer = faq_answer
-
-    if best_score >= min_score:
-        return best_answer
-
-    return ""
+    return chat_completion.choices[0].message.content
 
 
-def faq_chain(question: str) -> str:
-    if not _FAQ_DATA:
+def faq_chain(question: str, min_score: float = 0.35) -> str:
+    matches = _retrieve_faq(question, top_k=1)
+    if not matches:
         return "FAQ data is not loaded yet."
 
-    rule_answer = _match_rule_based(question)
-    if rule_answer:
-        return rule_answer
+    best_match = matches[0]
+    if best_match["score"] < min_score:
+        return (
+            "I could not find a matching FAQ for that. "
+            "Please rephrase your question or ask about returns, refunds, payments, tracking, or offers."
+        )
 
-    fuzzy_answer = _match_fuzzy(question)
-    if fuzzy_answer:
-        return fuzzy_answer
-
-    return (
-        "I could not find a matching FAQ for that. "
-        "Please rephrase your question or ask about returns, refunds, payments, tracking, or offers."
-    )
+    try:
+        return _generate_faq_answer(question, best_match)
+    except Exception:
+        return best_match["answer"]
 
 
 if __name__ == "__main__":
