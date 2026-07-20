@@ -108,14 +108,15 @@ example_questions = [
     "What if my product is damaged?",
 ]
 
-selected_example = None
 example_cols = st.columns(2)
 for idx, example in enumerate(example_questions):
     with example_cols[idx % 2]:
         if st.button(example, key=f"example_{idx}", use_container_width=True):
-            selected_example = example
+            st.session_state["selected_example"] = example
 
-query = selected_example or st.chat_input("Write your query")
+query = st.chat_input("Write your query")
+if st.session_state.get("selected_example"):
+    query = st.session_state.pop("selected_example")
 
 
 if 'messages' not in st.session_state:
