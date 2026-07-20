@@ -98,6 +98,10 @@ def ask(query):
 st.title("E COMMERCE CHATBOT")
 
 st.caption("Try a sample question or type your own.")
+st.info(
+    "Product data comes from an offline Flipkart scrape, so some external product links "
+    "may expire or become unavailable."
+)
 
 example_questions = [
     "How can I pay?",
