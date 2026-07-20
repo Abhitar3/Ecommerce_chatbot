@@ -1,46 +1,128 @@
-# 💬 e-commerce chatbot (Gen AI RAG project using LLama3.3 and GROQ)
+# E-Commerce Chatbot with Multi-Intent Classification
 
-This is POC of an intelligent chatbot tailored for an e-commerce platform, enabling seamless user interactions by accurately identifying the intent behind user queries. It leverages real-time access to the platform's database, allowing it to provide precise and up-to-date responses.
+AI-powered e-commerce chatbot that supports customer FAQ handling and natural-language product search over scraped Flipkart product data.
 
-Folder structure
-1. app: All the code for chatbota
-2. web-scraping: Code to scrap e-commerce website 
+Live demo: https://abhitar-ecommerce-chatbot.streamlit.app  
+GitHub: https://github.com/Abhitar3/Ecommerce_chatbot
 
-This chatbot currently supports two intents:
+## Overview
 
-- **faq**: Triggered when users ask questions related to the platform's policies or general information. eg. Is online payment available?
-- **sql**: Activated when users request product listings or information based on real-time database queries. eg. Show me all nike shoes below Rs. 3000.
+This project demonstrates a two-route chatbot architecture:
 
+- `FAQ route`: retrieves relevant policy/support answers using sentence-transformer embeddings and FAISS vector search.
+- `SQL route`: converts product-search questions into SQL using Groq, executes the query against SQLite, and returns product results with links.
 
-![product screenshot](app/resources/product-ss.png)
+Product data is collected offline using Selenium, saved to CSV, and loaded into SQLite. The live app does not scrape Flipkart during query time, so some external product links may expire or become unavailable.
 
+## Features
+
+- Multi-intent routing for FAQ and product-search queries.
+- FAISS-based semantic FAQ retrieval using `sentence-transformers/all-MiniLM-L6-v2`.
+- Groq-powered natural-language-to-SQL generation for product questions.
+- SQLite product catalog built from scraped Flipkart data.
+- Streamlit chat interface with sample prompt buttons.
+- Fallback handling for unmatched intents, large SQL outputs, and unavailable exact product matches.
+- Cleaner product responses with compact `View product` links.
 
 ## Architecture
-![architecture diagram of the e-commerce chatbot](app/resources/architecture-diagram.png)
 
+```text
+User query
+-> keyword guardrails + semantic-router
+-> FAQ route or SQL route
+```
 
-### Set-up & Execution
+FAQ route:
 
-1. Run the following command to install all dependencies. 
+```text
+faq_data.csv
+-> sentence-transformer embeddings
+-> FAISS vector index
+-> retrieve closest FAQ
+-> Groq generates grounded final answer
+```
 
-    ```bash
-    pip install -r app/requirements.txt
-    ```
+Product route:
 
-1. Inside app folder, create a .env file with your GROQ credentials as follows:
-    ```text
-    GROQ_MODEL=<Add the model name, e.g. llama-3.3-70b-versatile>
-    GROQ_API_KEY=<Add your groq api key here>
-    ```
+```text
+User product query
+-> Groq NL-to-SQL
+-> SQLite query execution
+-> product records
+-> formatted response with product links
+```
 
-1. Run the streamlit app by running the following command.
+Data pipeline:
 
-    ```bash
-    streamlit run app/main.py
-    ```
+```text
+Selenium scraping
+-> Flipkart product CSV
+-> CSV-to-SQL ingestion
+-> SQLite database
+-> Streamlit app queries SQLite at runtime
+```
 
----
+## Evaluation
 
-Copyright (C) Codebasics Inc. All rights reserved.
+Internal evaluation results:
 
-Additional Terms: This software is licensed under the MIT License. However, commercial use of this software is strictly prohibited without prior written permission from the author. Attribution must be given in all copies or substantial portions of the software.
+- Intent routing accuracy: `82.5%`
+- Macro-F1: `0.80`
+- FAQ answer accuracy: `90%`
+
+The evaluation set included paraphrased and noisy user queries for FAQ and product-search intents.
+
+## Tech Stack
+
+- Python
+- Streamlit
+- Groq
+- Semantic Router
+- Sentence Transformers
+- FAISS
+- SQLite
+- Selenium
+- Pandas
+
+## Setup
+
+1. Create and activate a virtual environment:
+
+```powershell
+python -m venv venv
+.\venv\Scripts\Activate.ps1
+```
+
+2. Install dependencies:
+
+```powershell
+pip install -r requirements.txt
+```
+
+3. Create `app/.env`:
+
+```text
+GROQ_API_KEY=your_groq_api_key
+GROQ_MODEL=llama-3.3-70b-versatile
+```
+
+4. Run the app:
+
+```powershell
+streamlit run app/main.py
+```
+
+## Example Questions
+
+- How can I pay?
+- What is the return policy?
+- What if my product is damaged?
+- Show Nike shoes under 3000
+- What are the best deals?
+- How many Nike products do we have?
+
+## Notes
+
+- Product data is based on an offline Flipkart scrape.
+- The app queries SQLite at runtime; Selenium is not used during live chat.
+- Some Flipkart product links may expire after scraping.
