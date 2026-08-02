@@ -73,11 +73,11 @@ Internal evaluation results:
 - Intent routing accuracy: `82.5%`
 - Macro-F1: `0.80`
 - FAQ answer accuracy: `90%`
-- Hybrid FAQ retrieval Top-1 accuracy: `100%`
-- Hybrid FAQ retrieval Recall@3: `100%`
-- Hybrid FAQ retrieval MRR: `1.00`
+- Hybrid FAQ retrieval Top-1 accuracy: `93.5%`
+- Hybrid FAQ retrieval Recall@3: `98.4%`
+- Hybrid FAQ retrieval MRR: `0.96`
 
-The evaluation set included paraphrased and noisy user queries for FAQ and product-search intents.
+The evaluation set included paraphrased, noisy, shorthand, and ecommerce-specific user queries for FAQ and product-search intents. The FAQ retrieval benchmark contains `62` labeled queries.
 
 Run FAQ retrieval evaluation:
 
