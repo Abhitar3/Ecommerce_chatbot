@@ -9,7 +9,7 @@ GitHub: https://github.com/Abhitar3/Ecommerce_chatbot
 
 This project demonstrates a two-route chatbot architecture:
 
-- `FAQ route`: retrieves relevant policy/support answers using sentence-transformer embeddings and FAISS vector search.
+- `FAQ route`: retrieves relevant policy/support answers using hybrid RAG with FAISS dense search, BM25 sparse search, Reciprocal Rank Fusion, and cross-encoder reranking.
 - `SQL route`: converts product-search questions into SQL using Groq, executes the query against SQLite, and returns product results with links.
 
 Product data is collected offline using Selenium, saved to CSV, and loaded into SQLite. The live app does not scrape Flipkart during query time, so some external product links may expire or become unavailable.
@@ -17,7 +17,7 @@ Product data is collected offline using Selenium, saved to CSV, and loaded into 
 ## Features
 
 - Multi-intent routing for FAQ and product-search queries.
-- FAISS-based semantic FAQ retrieval using `sentence-transformers/all-MiniLM-L6-v2`.
+- Hybrid FAQ retrieval using FAISS dense search, BM25 sparse search, Reciprocal Rank Fusion, and cross-encoder reranking.
 - Groq-powered natural-language-to-SQL generation for product questions.
 - SQLite product catalog built from scraped Flipkart data.
 - Streamlit chat interface with sample prompt buttons.
@@ -38,7 +38,11 @@ FAQ route:
 faq_data.csv
 -> sentence-transformer embeddings
 -> FAISS vector index
--> retrieve closest FAQ
+-> BM25 sparse index
+-> dense + sparse retrieval
+-> Reciprocal Rank Fusion
+-> cross-encoder reranking
+-> retrieve top FAQ contexts
 -> Groq generates grounded final answer
 ```
 
@@ -69,8 +73,23 @@ Internal evaluation results:
 - Intent routing accuracy: `82.5%`
 - Macro-F1: `0.80`
 - FAQ answer accuracy: `90%`
+- Hybrid FAQ retrieval Top-1 accuracy: `100%`
+- Hybrid FAQ retrieval Recall@3: `100%`
+- Hybrid FAQ retrieval MRR: `1.00`
 
 The evaluation set included paraphrased and noisy user queries for FAQ and product-search intents.
+
+Run FAQ retrieval evaluation:
+
+```powershell
+python app/evaluate_faq_retrieval.py
+```
+
+The retrieval evaluator reports:
+
+- Top-1 accuracy
+- Recall@3
+- Mean Reciprocal Rank (MRR)
 
 ## Tech Stack
 
@@ -80,6 +99,8 @@ The evaluation set included paraphrased and noisy user queries for FAQ and produ
 - Semantic Router
 - Sentence Transformers
 - FAISS
+- BM25
+- Cross Encoder
 - SQLite
 - Selenium
 - Pandas

@@ -6,3 +6,4 @@ groq
 semantic-router[local]
 sentence_transformers
 faiss-cpu
+rank-bm25
