@@ -3,7 +3,6 @@
 AI-powered e-commerce chatbot that supports customer FAQ handling and natural-language product search over scraped Flipkart product data.
 
 Live demo: https://abhitar-ecommerce-chatbot.streamlit.app  
-GitHub: https://github.com/Abhitar3/Ecommerce_chatbot
 
 ## Overview
 
